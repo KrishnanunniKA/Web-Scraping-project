@@ -1,0 +1,47 @@
+import requests
+from bs4 import BeautifulSoup
+import pandas
+import argparse
+import connect
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--page_no_max", help="enter the no of pages to parse" , type=int)
+parser.add_argument("--dbname", help="enter the name of db", type=str)
+args = parser.parse_args()
+
+site_url = "https://www.oyorooms.com/hotels-in-kochi/?pages="
+page_no_max = args.page_no_max
+scraped_info_list = []
+connect.connect(args.dbname)
+
+for page_no in range(1,page_no_max):
+    url = site_url + str(page_no)
+    print("Get request for: " + url)
+    req = requests.get(site_url + str(page_no))
+    content = req.content
+
+    soup = BeautifulSoup(content, "html.parser")
+    all_hotels = soup.find_all(("div", {"class": "hotelCardListing"}))
+
+    for hotel in all_hotels:
+        hotel_dict = {}
+        hotel_dict["Name"] = hotel.find("h3", {"class": "listingHotelDescription__hotelName"}).text
+        hotel_dict["Address"] = hotel.find("span", {"itemprop": "streetAddress"}).text
+        hotel_dict["Price"] = hotel.find("span", {"class": "listingPrice__finalPrice"}).text
+        try:
+            hotel_dict["Ratinng"] = hotel.find("span", {"class": "hotelRating__ratingSummary"}).text
+        except AttributeError:
+            hotel_dict["Ratinng"] = None
+        parent_amenities_element = hotel.find("div", {"class": "amenityWrapper"})
+        amenities_list = []
+        for amenity in parent_amenities_element.find_all(("div", {"class": "amenityWrapper__amenity"})):
+            amenities_list.append(amenity.find("span", {"class": "d-body-sm"}).text.strp())
+        hotel_dict["Amnenities"] = ', '.join(amenities_list[:-1])
+
+        scraped_info_list.append(hotel_dict)
+        connect.insert_into_table(args.dbname, tuple(hotel_dict.values()))
+
+dataFrame = pandas.DataFrame(scraped_info_list)
+print("Creating csv file...")
+dataFrame.to_csv("Oyo.csv")
+connect.get_hotel_info(args.dbname)
